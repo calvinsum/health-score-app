@@ -509,11 +509,7 @@ const HealthScoreApp = () => {
 
   const addScoreGroup = () => {
     if (newScoreGroup.name && newScoreGroup.action) {
-      const color = newScoreGroup.name.toLowerCase() === "green" ? "bg-green-100 text-green-800 border-green-200" :
-                   newScoreGroup.name.toLowerCase() === "yellow" ? "bg-yellow-100 text-yellow-800 border-yellow-200" :
-                   newScoreGroup.name.toLowerCase() === "red" ? "bg-red-100 text-red-800 border-red-200" :
-                   newScoreGroup.name.toLowerCase() === "grey" || newScoreGroup.name.toLowerCase() === "gray" ? "bg-gray-100 text-gray-800 border-gray-200" :
-                   "bg-blue-100 text-blue-800 border-blue-200";
+      const color = getStatusColor(newScoreGroup.name);
       
       setScoreGroups([...scoreGroups, { 
         id: Date.now().toString(), 
@@ -523,6 +519,36 @@ const HealthScoreApp = () => {
       setNewScoreGroup({ name: "", minScore: 0, maxScore: 0, action: "" });
     }
   };
+
+  // Helper function to determine color based on status name
+  const getStatusColor = (statusName: string) => {
+    const name = statusName.toLowerCase();
+    if (name.includes("green") || name.includes("good") || name.includes("healthy") || name.includes("excellent")) {
+      return "bg-green-100 text-green-800 border-green-200";
+    } else if (name.includes("yellow") || name.includes("warning") || name.includes("caution") || name.includes("moderate")) {
+      return "bg-yellow-100 text-yellow-800 border-yellow-200";
+    } else if (name.includes("red") || name.includes("critical") || name.includes("danger") || name.includes("poor") || name.includes("bad")) {
+      return "bg-red-100 text-red-800 border-red-200";
+    } else if (name.includes("grey") || name.includes("gray") || name.includes("neutral") || name.includes("pending")) {
+      return "bg-gray-100 text-gray-800 border-gray-200";
+    } else if (name.includes("blue") || name.includes("info") || name.includes("information")) {
+      return "bg-blue-100 text-blue-800 border-blue-200";
+    } else if (name.includes("purple") || name.includes("premium") || name.includes("special")) {
+      return "bg-purple-100 text-purple-800 border-purple-200";
+    } else {
+      return "bg-slate-100 text-slate-800 border-slate-200";
+    }
+  };
+
+  // Update colors when status names change
+  useEffect(() => {
+    setScoreGroups(currentGroups => 
+      currentGroups.map(group => ({
+        ...group,
+        color: getStatusColor(group.name)
+      }))
+    );
+  }, [scoreGroups.map(g => g.name + g.id).join(',')]);
 
   // Functions to delete items
   const deleteMetric = (id: string) => {
@@ -1527,8 +1553,20 @@ const HealthScoreApp = () => {
                       <div key={group.id} className="form-grid form-grid-5 form-grid-row">
                         <div className="form-field">
                           <div className="flex items-center gap-2">
-                            <span className={`px-3 py-1 rounded-full text-xs font-medium border ${group.color}`}>
-                              {group.name}
+                            <Input 
+                              value={group.name} 
+                              onChange={(e) => setScoreGroups(scoreGroups.map(sg => 
+                                sg.id === group.id ? {
+                                  ...sg, 
+                                  name: e.target.value,
+                                  color: getStatusColor(e.target.value)
+                                } : sg
+                              ))}
+                              className="form-control"
+                              placeholder="Status name"
+                            />
+                            <span className={`px-2 py-1 rounded text-xs font-medium border ${group.color} ml-2`}>
+                              Preview
                             </span>
                           </div>
                         </div>
