@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -160,6 +160,46 @@ interface TransformationRule {
   function: string;
 }
 
+// Error Boundary Component
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error?: Error }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('SelectItem Error Boundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <h3 className="text-red-800 font-semibold">Something went wrong</h3>
+          <p className="text-red-600 text-sm mt-1">
+            There was an error with the selection component. Please refresh the page.
+          </p>
+          <button 
+            onClick={() => this.setState({ hasError: false })}
+            className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded text-sm hover:bg-red-200"
+          >
+            Try Again
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 const HealthScoreApp = () => {
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [selectedColumns, setSelectedColumns] = useState<string[]>([
@@ -179,6 +219,7 @@ const HealthScoreApp = () => {
   const [showMappingWizard, setShowMappingWizard] = useState(false);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvPreviewData, setCsvPreviewData] = useState<string[][]>([]);
+  const [fieldMappings, setFieldMappings] = useState<Record<string, string>>({});
 
   // Initialize all state with localStorage data or defaults
   const initializeState = () => {
@@ -2043,7 +2084,7 @@ const HealthScoreApp = () => {
         )}
 
         {/* Field Mapping Wizard Modal */}
-        {showMappingWizard && csvHeaders && csvHeaders.length > 0 && (
+        {showMappingWizard && csvHeaders && csvHeaders.length > 0 && metrics && customFields && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-hidden w-full mx-4">
               <div className="p-6 border-b border-gray-200">
@@ -2054,9 +2095,10 @@ const HealthScoreApp = () => {
                   </div>
                   <Button 
                     onClick={() => {
-                      if (setShowMappingWizard) setShowMappingWizard(false);
-                      if (setCsvHeaders) setCsvHeaders([]);
-                      if (setCsvPreviewData) setCsvPreviewData([]);
+                      setShowMappingWizard(false);
+                      setCsvHeaders([]);
+                      setCsvPreviewData([]);
+                      setFieldMappings({});
                     }}
                     variant="ghost"
                     size="sm"
@@ -2080,29 +2122,28 @@ const HealthScoreApp = () => {
                       </div>
                     </div>
                     
-                    <div className="border border-gray-200 rounded-md overflow-hidden">
-                      <table className="w-full text-xs">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            {(csvHeaders || []).map((header: string, index: number) => (
-                              <th key={index} className="px-2 py-2 text-left font-medium text-gray-700 border-r border-gray-200 last:border-r-0">
-                                {header}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(csvPreviewData || []).map((row: string[], rowIndex: number) => (
-                            <tr key={rowIndex} className="border-t border-gray-200">
-                              {(row || []).map((cell: string, cellIndex: number) => (
-                                <td key={cellIndex} className="px-2 py-2 border-r border-gray-200 last:border-r-0 text-gray-600">
-                                  {cell && cell.length > 20 ? `${cell.substring(0, 20)}...` : cell || ''}
-                                </td>
-                              ))}
-                            </tr>
+                    <div className="bg-gray-50 p-4 border rounded-lg">
+                      <h3 className="font-medium text-lg mb-3">CSV Preview</h3>
+                      
+                      {/* CSV Headers */}
+                      <div className="grid grid-cols-12 gap-2 mb-2">
+                        {Array.isArray(csvHeaders) && csvHeaders.slice(0, 12).map((header, index) => (
+                          <div key={`header-${index}`} className="font-semibold text-xs bg-blue-100 p-2 rounded">
+                            {header && typeof header === 'string' ? header : `Column ${index + 1}`}
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Sample Data Rows */}
+                      {Array.isArray(csvPreviewData) && csvPreviewData.slice(0, 3).map((row, rowIndex) => (
+                        <div key={`row-${rowIndex}`} className="grid grid-cols-12 gap-2 mb-1">
+                          {Array.isArray(row) && row.slice(0, 12).map((cell, cellIndex) => (
+                            <div key={`cell-${rowIndex}-${cellIndex}`} className="text-xs p-2 bg-white border rounded truncate">
+                              {cell !== null && cell !== undefined && typeof cell !== 'object' ? String(cell) : ''}
+                            </div>
                           ))}
-                        </tbody>
-                      </table>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -2116,19 +2157,33 @@ const HealthScoreApp = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Use Mapping Profile (Optional)
                     </label>
-                    <Select value={selectedProfile || ""} onValueChange={setSelectedProfile || (() => {})}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a profile or map manually" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Manual Mapping</SelectItem>
-                        {(mappingProfiles || []).map((profile: any) => (
-                          <SelectItem key={profile.id} value={profile.id}>
-                            {profile.name} ({profile.source})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <ErrorBoundary>
+                      <Select 
+                        value={selectedProfile || ""} 
+                        onValueChange={(value) => {
+                          try {
+                            setSelectedProfile(value);
+                          } catch (error) {
+                            console.error('Profile selection error:', error);
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a profile or map manually" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">Manual Mapping</SelectItem>
+                          {Array.isArray(mappingProfiles) && mappingProfiles.length > 0 && mappingProfiles
+                            .filter(profile => profile && typeof profile === 'object' && profile.id && profile.name && profile.source)
+                            .map((profile) => (
+                              <SelectItem key={profile.id} value={profile.id}>
+                                {profile.name} ({profile.source})
+                              </SelectItem>
+                            ))
+                          }
+                        </SelectContent>
+                      </Select>
+                    </ErrorBoundary>
                   </div>
 
                   {/* Smart Suggestions */}
@@ -2137,13 +2192,29 @@ const HealthScoreApp = () => {
                     <Button 
                       onClick={() => {
                         try {
-                          const suggestions = detectFieldMappings ? detectFieldMappings(csvHeaders || []) : [];
-                          if (setSaveStatus) {
-                            setSaveStatus(`Found ${suggestions.length} automatic suggestions!`);
-                            setTimeout(() => setSaveStatus && setSaveStatus(''), 3000);
+                          if (Array.isArray(csvHeaders) && csvHeaders.length > 0 && typeof detectFieldMappings === 'function') {
+                            const suggestions = detectFieldMappings(csvHeaders);
+                            if (Array.isArray(suggestions) && suggestions.length > 0) {
+                              // Apply suggestions to fieldMappings
+                              const newMappings: Record<string, string> = {};
+                              suggestions.forEach(suggestion => {
+                                if (suggestion && suggestion.csvColumn && suggestion.appField) {
+                                  newMappings[suggestion.csvColumn] = suggestion.appField;
+                                }
+                              });
+                              setFieldMappings(prev => ({ ...(prev || {}), ...newMappings }));
+                              setSaveStatus(`Found ${suggestions.length} automatic suggestions!`);
+                            } else {
+                              setSaveStatus('No automatic suggestions found.');
+                            }
+                          } else {
+                            setSaveStatus('Auto-detection not available.');
                           }
+                          setTimeout(() => setSaveStatus(''), 3000);
                         } catch (error) {
-                          console.log('Auto-detection not available:', error);
+                          console.error('Auto-detection error:', error);
+                          setSaveStatus('Error during auto-detection.');
+                          setTimeout(() => setSaveStatus(''), 3000);
                         }
                       }}
                       className="btn-primary btn-sm"
@@ -2159,37 +2230,61 @@ const HealthScoreApp = () => {
                   {/* Manual Field Mapping */}
                   <div className="space-y-4">
                     <h4 className="font-medium text-gray-900">Map CSV Columns to App Fields</h4>
-                    {(csvHeaders || []).map((header: string, index: number) => (
-                      <div key={index} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg">
+                    {Array.isArray(csvHeaders) && csvHeaders.length > 0 && csvHeaders.map((header, index) => (
+                      <div key={`${header}-${index}`} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg">
                         <div className="flex-1">
-                          <div className="font-medium text-sm text-gray-900">{header}</div>
+                          <div className="font-medium text-sm text-gray-900">{header || `Column ${index + 1}`}</div>
                           <div className="text-xs text-gray-500">
-                            Sample: {csvPreviewData?.[0]?.[index] || 'No data'}
+                            Sample: {
+                              Array.isArray(csvPreviewData) && csvPreviewData[0] && Array.isArray(csvPreviewData[0]) 
+                                ? (csvPreviewData[0][index] || 'No data')
+                                : 'No data'
+                            }
                           </div>
                         </div>
                         <div className="w-8 text-center text-gray-400">→</div>
                         <div className="flex-1">
-                          <Select>
-                            <SelectTrigger className="text-sm">
-                              <SelectValue placeholder="Choose field..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="">Skip this column</SelectItem>
-                              <SelectItem value="customer">Customer Name</SelectItem>
-                              <SelectItem value="score">Health Score</SelectItem>
-                              <SelectItem value="status">Status</SelectItem>
-                              {(metrics || []).map((metric: any) => (
-                                <SelectItem key={metric.id} value={`metric_${metric.id}`}>
-                                  {metric.name} (Metric)
-                                </SelectItem>
-                              ))}
-                              {(customFields || []).map((field: any) => (
-                                <SelectItem key={field.id} value={`custom_${field.id}`}>
-                                  {field.name} (Custom)
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <ErrorBoundary>
+                            <Select
+                              value={(fieldMappings && fieldMappings[header]) || ""}
+                              onValueChange={(value) => {
+                                try {
+                                  setFieldMappings(prev => ({
+                                    ...(prev || {}),
+                                    [header]: value
+                                  }));
+                                } catch (error) {
+                                  console.error('Field mapping error:', error);
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="text-sm">
+                                <SelectValue placeholder="Choose field..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="">Skip this column</SelectItem>
+                                <SelectItem value="customer">Customer Name</SelectItem>
+                                <SelectItem value="score">Health Score</SelectItem>
+                                <SelectItem value="status">Status</SelectItem>
+                                {Array.isArray(metrics) && metrics.length > 0 && metrics
+                                  .filter(metric => metric && typeof metric === 'object' && metric.id && metric.name)
+                                  .map((metric) => (
+                                    <SelectItem key={`metric-${metric.id}`} value={`metric_${metric.id}`}>
+                                      {metric.name} (Metric)
+                                    </SelectItem>
+                                  ))
+                                }
+                                {Array.isArray(customFields) && customFields.length > 0 && customFields
+                                  .filter(field => field && typeof field === 'object' && field.id && field.name)
+                                  .map((field) => (
+                                    <SelectItem key={`custom-${field.id}`} value={`custom_${field.id}`}>
+                                      {field.name} (Custom)
+                                    </SelectItem>
+                                  ))
+                                }
+                              </SelectContent>
+                            </Select>
+                          </ErrorBoundary>
                         </div>
                       </div>
                     ))}
@@ -2211,11 +2306,16 @@ const HealthScoreApp = () => {
                   <div className="flex gap-3">
                     <Button 
                       onClick={() => {
-                        const profileName = prompt('Save this mapping as a profile:');
-                        if (profileName && createMappingProfile) {
-                          const description = prompt('Profile description:') || '';
-                          const source = prompt('Data source:') || 'Unknown';
-                          createMappingProfile(profileName, description, source);
+                        try {
+                          const profileName = prompt('Save this mapping as a profile:');
+                          if (profileName && typeof createMappingProfile === 'function') {
+                            const description = prompt('Profile description:') || '';
+                            const source = prompt('Data source:') || 'Unknown';
+                            createMappingProfile(profileName, description, source);
+                          }
+                        } catch (error) {
+                          console.error('Profile creation error:', error);
+                          alert('Error creating profile');
                         }
                       }}
                       className="btn-secondary"
@@ -2225,12 +2325,19 @@ const HealthScoreApp = () => {
                     </Button>
                     <Button 
                       onClick={() => {
-                        // TODO: Process the mapped CSV data
-                        if (setSaveStatus) {
+                        try {
+                          // TODO: Process the mapped CSV data
                           setSaveStatus('CSV data processing is ready!');
-                          setTimeout(() => setSaveStatus && setSaveStatus(''), 3000);
+                          setTimeout(() => setSaveStatus(''), 3000);
+                          setShowMappingWizard(false);
+                          setCsvHeaders([]);
+                          setCsvPreviewData([]);
+                          setFieldMappings({});
+                        } catch (error) {
+                          console.error('Import error:', error);
+                          setSaveStatus('Error during import');
+                          setTimeout(() => setSaveStatus(''), 3000);
                         }
-                        if (setShowMappingWizard) setShowMappingWizard(false);
                       }}
                       className="btn-primary"
                     >
