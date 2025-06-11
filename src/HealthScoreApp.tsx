@@ -138,6 +138,7 @@ const HealthScoreApp = () => {
   // Storage states
   const [storageInfo, setStorageInfo] = useState(getStorageInfo());
   const [isLoading, setIsLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<string>('');
 
   // Initialize all state with localStorage data or defaults
   const initializeState = () => {
@@ -377,6 +378,10 @@ const HealthScoreApp = () => {
   useEffect(() => {
     if (!isLoading) {
       saveDataType('selectedColumns', selectedColumns);
+      if (selectedColumns.length > 0) {
+        setSaveStatus('Auto-saved');
+        setTimeout(() => setSaveStatus(''), 1500);
+      }
     }
   }, [selectedColumns, isLoading]);
 
@@ -896,6 +901,10 @@ const HealthScoreApp = () => {
     const [movedColumn] = newColumns.splice(fromIndex, 1);
     newColumns.splice(toIndex, 0, movedColumn);
     setSelectedColumns(newColumns);
+    
+    // Show save confirmation
+    setSaveStatus('Column order saved!');
+    setTimeout(() => setSaveStatus(''), 2000);
   };
 
   const moveColumnUp = (columnId: string) => {
@@ -996,6 +1005,27 @@ const HealthScoreApp = () => {
       reader.readAsText(file);
     }
   };
+
+  // Enhanced save function for column customizer
+  const handleSaveColumnSettings = () => {
+    // Force save to localStorage
+    saveDataType('selectedColumns', selectedColumns);
+    setStorageInfo(getStorageInfo());
+    setSaveStatus('Column settings saved successfully!');
+    setTimeout(() => setSaveStatus(''), 3000);
+    setShowColumnCustomizer(false);
+  };
+
+  // Auto-save with confirmation
+  useEffect(() => {
+    if (!isLoading) {
+      saveDataType('selectedColumns', selectedColumns);
+      if (selectedColumns.length > 0) {
+        setSaveStatus('Auto-saved column settings');
+        setTimeout(() => setSaveStatus(''), 1500);
+      }
+    }
+  }, [selectedColumns, isLoading]);
 
   return (
     <div className="app-container">
@@ -1904,6 +1934,16 @@ const HealthScoreApp = () => {
                 </div>
               </div>
               
+              {/* Save Status Notification */}
+              {saveStatus && (
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <MdCheckCircle className="text-green-600" />
+                    <span className="text-green-800 font-medium">{saveStatus}</span>
+                  </div>
+                </div>
+              )}
+              
               {/* CSV Upload Dropdown */}
               {showCSVUploader && (
                 <div className="mt-4 p-4 border border-gray-200 rounded-lg bg-white shadow-lg">
@@ -2146,12 +2186,19 @@ const HealthScoreApp = () => {
                         <span className="text-sm text-gray-600">
                           {selectedColumns.length} of {availableColumns.length} columns selected
                         </span>
-                        <Button 
-                          onClick={() => setShowColumnCustomizer(false)}
-                          className="btn-primary"
-                        >
-                          Apply Changes
-                        </Button>
+                        <div className="flex items-center gap-3">
+                          {saveStatus && (
+                            <span className="text-sm text-green-600 font-medium">
+                              {saveStatus}
+                            </span>
+                          )}
+                          <Button 
+                            onClick={handleSaveColumnSettings}
+                            className="btn-primary"
+                          >
+                            Save & Apply Changes
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )}
