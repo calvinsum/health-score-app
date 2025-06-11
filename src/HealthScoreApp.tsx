@@ -2043,7 +2043,7 @@ const HealthScoreApp = () => {
         )}
 
         {/* Field Mapping Wizard Modal */}
-        {showMappingWizard && csvHeaders.length > 0 && (
+        {showMappingWizard && csvHeaders && csvHeaders.length > 0 && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-hidden w-full mx-4">
               <div className="p-6 border-b border-gray-200">
@@ -2054,9 +2054,9 @@ const HealthScoreApp = () => {
                   </div>
                   <Button 
                     onClick={() => {
-                      setShowMappingWizard(false);
-                      setCsvHeaders([]);
-                      setCsvPreviewData([]);
+                      if (setShowMappingWizard) setShowMappingWizard(false);
+                      if (setCsvHeaders) setCsvHeaders([]);
+                      if (setCsvPreviewData) setCsvPreviewData([]);
                     }}
                     variant="ghost"
                     size="sm"
@@ -2073,10 +2073,10 @@ const HealthScoreApp = () => {
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <span className="font-medium">Columns Found:</span> {csvHeaders.length}
+                        <span className="font-medium">Columns Found:</span> {csvHeaders?.length || 0}
                       </div>
                       <div>
-                        <span className="font-medium">Sample Rows:</span> {csvPreviewData.length}
+                        <span className="font-medium">Sample Rows:</span> {csvPreviewData?.length || 0}
                       </div>
                     </div>
                     
@@ -2084,7 +2084,7 @@ const HealthScoreApp = () => {
                       <table className="w-full text-xs">
                         <thead className="bg-gray-50">
                           <tr>
-                            {csvHeaders.map((header, index) => (
+                            {(csvHeaders || []).map((header: string, index: number) => (
                               <th key={index} className="px-2 py-2 text-left font-medium text-gray-700 border-r border-gray-200 last:border-r-0">
                                 {header}
                               </th>
@@ -2092,11 +2092,11 @@ const HealthScoreApp = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {csvPreviewData.map((row, rowIndex) => (
+                          {(csvPreviewData || []).map((row: string[], rowIndex: number) => (
                             <tr key={rowIndex} className="border-t border-gray-200">
-                              {row.map((cell, cellIndex) => (
+                              {(row || []).map((cell: string, cellIndex: number) => (
                                 <td key={cellIndex} className="px-2 py-2 border-r border-gray-200 last:border-r-0 text-gray-600">
-                                  {cell.length > 20 ? `${cell.substring(0, 20)}...` : cell}
+                                  {cell && cell.length > 20 ? `${cell.substring(0, 20)}...` : cell || ''}
                                 </td>
                               ))}
                             </tr>
@@ -2116,13 +2116,13 @@ const HealthScoreApp = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Use Mapping Profile (Optional)
                     </label>
-                    <Select value={selectedProfile} onValueChange={setSelectedProfile}>
+                    <Select value={selectedProfile || ""} onValueChange={setSelectedProfile || (() => {})}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a profile or map manually" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">Manual Mapping</SelectItem>
-                        {mappingProfiles.map((profile) => (
+                        {(mappingProfiles || []).map((profile: any) => (
                           <SelectItem key={profile.id} value={profile.id}>
                             {profile.name} ({profile.source})
                           </SelectItem>
@@ -2136,9 +2136,15 @@ const HealthScoreApp = () => {
                     <h4 className="font-medium text-blue-900 mb-2">Smart Mapping Suggestions</h4>
                     <Button 
                       onClick={() => {
-                        const suggestions = detectFieldMappings(csvHeaders);
-                        setSaveStatus(`Found ${suggestions.length} automatic suggestions!`);
-                        setTimeout(() => setSaveStatus(''), 3000);
+                        try {
+                          const suggestions = detectFieldMappings ? detectFieldMappings(csvHeaders || []) : [];
+                          if (setSaveStatus) {
+                            setSaveStatus(`Found ${suggestions.length} automatic suggestions!`);
+                            setTimeout(() => setSaveStatus && setSaveStatus(''), 3000);
+                          }
+                        } catch (error) {
+                          console.log('Auto-detection not available:', error);
+                        }
                       }}
                       className="btn-primary btn-sm"
                     >
@@ -2153,12 +2159,12 @@ const HealthScoreApp = () => {
                   {/* Manual Field Mapping */}
                   <div className="space-y-4">
                     <h4 className="font-medium text-gray-900">Map CSV Columns to App Fields</h4>
-                    {csvHeaders.map((header, index) => (
+                    {(csvHeaders || []).map((header: string, index: number) => (
                       <div key={index} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg">
                         <div className="flex-1">
                           <div className="font-medium text-sm text-gray-900">{header}</div>
                           <div className="text-xs text-gray-500">
-                            Sample: {csvPreviewData[0]?.[index] || 'No data'}
+                            Sample: {csvPreviewData?.[0]?.[index] || 'No data'}
                           </div>
                         </div>
                         <div className="w-8 text-center text-gray-400">→</div>
@@ -2172,12 +2178,12 @@ const HealthScoreApp = () => {
                               <SelectItem value="customer">Customer Name</SelectItem>
                               <SelectItem value="score">Health Score</SelectItem>
                               <SelectItem value="status">Status</SelectItem>
-                              {metrics.map((metric) => (
+                              {(metrics || []).map((metric: any) => (
                                 <SelectItem key={metric.id} value={`metric_${metric.id}`}>
                                   {metric.name} (Metric)
                                 </SelectItem>
                               ))}
-                              {customFields.map((field) => (
+                              {(customFields || []).map((field: any) => (
                                 <SelectItem key={field.id} value={`custom_${field.id}`}>
                                   {field.name} (Custom)
                                 </SelectItem>
@@ -2206,7 +2212,7 @@ const HealthScoreApp = () => {
                     <Button 
                       onClick={() => {
                         const profileName = prompt('Save this mapping as a profile:');
-                        if (profileName) {
+                        if (profileName && createMappingProfile) {
                           const description = prompt('Profile description:') || '';
                           const source = prompt('Data source:') || 'Unknown';
                           createMappingProfile(profileName, description, source);
@@ -2220,9 +2226,11 @@ const HealthScoreApp = () => {
                     <Button 
                       onClick={() => {
                         // TODO: Process the mapped CSV data
-                        setSaveStatus('CSV data processing is ready!');
-                        setShowMappingWizard(false);
-                        setTimeout(() => setSaveStatus(''), 3000);
+                        if (setSaveStatus) {
+                          setSaveStatus('CSV data processing is ready!');
+                          setTimeout(() => setSaveStatus && setSaveStatus(''), 3000);
+                        }
+                        if (setShowMappingWizard) setShowMappingWizard(false);
                       }}
                       className="btn-primary"
                     >
