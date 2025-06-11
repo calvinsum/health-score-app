@@ -8,6 +8,7 @@ interface AppData {
   merchants: any[];
   selectedColumns: string[];
   dataSubmissions: any[];
+  mappingProfiles: any[];
   settings: {
     appName: string;
     lastSaved: string;
@@ -64,6 +65,7 @@ export const loadFromLocalStorage = (): AppData => {
         merchants: parsedData.merchants || [],
         selectedColumns: parsedData.selectedColumns || [],
         dataSubmissions: parsedData.dataSubmissions || [],
+        mappingProfiles: parsedData.mappingProfiles || [],
         settings: { ...defaultSettings, ...parsedData.settings }
       };
     }
@@ -79,6 +81,7 @@ export const loadFromLocalStorage = (): AppData => {
     merchants: [],
     selectedColumns: [],
     dataSubmissions: [],
+    mappingProfiles: [],
     settings: defaultSettings
   };
 };

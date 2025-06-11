@@ -127,6 +127,37 @@ interface DataSubmission {
   status: "pending" | "processed" | "error";
 }
 
+interface FieldMapping {
+  csvColumn: string;
+  appField: string;
+  transformation?: string;
+  isRequired: boolean;
+}
+
+interface MappingProfile {
+  id: string;
+  name: string;
+  description: string;
+  source: string; // "Intercom", "StoreHub", "Internal", etc.
+  createdAt: string;
+  lastUsed: string;
+  fieldMappings: FieldMapping[];
+  settings: {
+    dateFormat: string;
+    numberFormat: string;
+    skipFirstRow: boolean;
+    delimiter: string;
+  };
+}
+
+interface TransformationRule {
+  id: string;
+  name: string;
+  type: "date" | "number" | "text" | "split" | "aggregate";
+  description: string;
+  function: string;
+}
+
 const HealthScoreApp = () => {
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [selectedColumns, setSelectedColumns] = useState<string[]>([
@@ -140,6 +171,13 @@ const HealthScoreApp = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<string>('');
 
+  // Mapping Profile states
+  const [mappingProfiles, setMappingProfiles] = useState<MappingProfile[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState<string>('');
+  const [showMappingWizard, setShowMappingWizard] = useState(false);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvPreviewData, setCsvPreviewData] = useState<string[][]>([]);
+
   // Initialize all state with localStorage data or defaults
   const initializeState = () => {
     if (hasStoredData()) {
@@ -150,7 +188,8 @@ const HealthScoreApp = () => {
         customFields: savedData.customFields.length > 0 ? savedData.customFields : getDefaultCustomFields(),
         merchants: savedData.merchants,
         selectedColumns: savedData.selectedColumns.length > 0 ? savedData.selectedColumns : ['customer', 'score', 'status', 'action'],
-        dataSubmissions: savedData.dataSubmissions
+        dataSubmissions: savedData.dataSubmissions,
+        mappingProfiles: savedData.mappingProfiles || []
       };
     }
     return {
@@ -159,7 +198,8 @@ const HealthScoreApp = () => {
       customFields: getDefaultCustomFields(),
       merchants: [],
       selectedColumns: ['customer', 'score', 'status', 'action'],
-      dataSubmissions: []
+      dataSubmissions: [],
+      mappingProfiles: []
     };
   };
 
@@ -193,6 +233,11 @@ const HealthScoreApp = () => {
   const [customFields, setCustomFields] = useState<CustomField[]>(initialState.customFields);
 
   const [scoreGroups, setScoreGroups] = useState<ScoreGroup[]>(initialState.scoreGroups);
+
+  // Initialize mapping profiles from localStorage
+  useEffect(() => {
+    setMappingProfiles(initialState.mappingProfiles);
+  }, []);
 
   // Dynamic helper function to calculate health score based on current metrics
   const calculateHealthScore = (merchantMetricValues: Record<string, number | number[]>) => {
@@ -387,6 +432,12 @@ const HealthScoreApp = () => {
       setStorageInfo(getStorageInfo());
     }
   }, [dataSubmissions, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      saveDataType('mappingProfiles', mappingProfiles);
+    }
+  }, [mappingProfiles, isLoading]);
 
   // Recalculate all merchant scores when metrics or score groups change
   useEffect(() => {
@@ -659,6 +710,7 @@ const HealthScoreApp = () => {
     { id: "field-creation", label: "Field Creation", icon: <MdAdd /> },
     { id: "metrics", label: "Metrics Config", icon: <MdSettings /> },
     { id: "score-rules", label: "Score Rules", icon: <MdStar /> },
+    { id: "data-mapping", label: "Data Mapping", icon: <MdTableChart /> },
     { id: "customers", label: "Customers", icon: <MdPeople /> },
     { id: "settings", label: "Settings", icon: <MdSettings /> },
   ];
@@ -1034,6 +1086,105 @@ const HealthScoreApp = () => {
     console.log('Saved column selection:', newColumns);
     setSaveStatus('Column selection saved!');
     setTimeout(() => setSaveStatus(''), 1500);
+  };
+
+  // Field Mapping Functions
+  const createMappingProfile = (name: string, description: string, source: string) => {
+    const newProfile: MappingProfile = {
+      id: Date.now().toString(),
+      name,
+      description,
+      source,
+      createdAt: new Date().toISOString(),
+      lastUsed: '',
+      fieldMappings: [],
+      settings: {
+        dateFormat: 'YYYY-MM-DD',
+        numberFormat: 'decimal',
+        skipFirstRow: true,
+        delimiter: ','
+      }
+    };
+    
+    setMappingProfiles([...mappingProfiles, newProfile]);
+    setSaveStatus(`Mapping profile "${name}" created successfully!`);
+    setTimeout(() => setSaveStatus(''), 3000);
+    return newProfile.id;
+  };
+
+  const deleteMappingProfile = (profileId: string) => {
+    setMappingProfiles(mappingProfiles.filter(p => p.id !== profileId));
+    if (selectedProfile === profileId) {
+      setSelectedProfile('');
+    }
+    setSaveStatus('Mapping profile deleted successfully!');
+    setTimeout(() => setSaveStatus(''), 3000);
+  };
+
+  const detectFieldMappings = (csvHeaders: string[]): FieldMapping[] => {
+    const suggestions: FieldMapping[] = [];
+    const targetFields = [
+      'customer', 'score', 'status', 'action',
+      ...metrics.map(m => `metric_${m.id}`),
+      ...customFields.map(f => `custom_${f.id}`)
+    ];
+
+    csvHeaders.forEach(header => {
+      const lowerHeader = header.toLowerCase();
+      let suggestion: FieldMapping | null = null;
+
+      // Smart field detection
+      if (lowerHeader.includes('customer') || lowerHeader.includes('client') || lowerHeader.includes('merchant')) {
+        suggestion = { csvColumn: header, appField: 'customer', isRequired: true };
+      } else if (lowerHeader.includes('score') || lowerHeader.includes('rating')) {
+        suggestion = { csvColumn: header, appField: 'score', isRequired: false };
+      } else if (lowerHeader.includes('ticket') || lowerHeader.includes('support')) {
+        const ticketMetric = metrics.find(m => m.name.toLowerCase().includes('ticket'));
+        if (ticketMetric) {
+          suggestion = { csvColumn: header, appField: `metric_${ticketMetric.id}`, isRequired: false };
+        }
+      } else if (lowerHeader.includes('adoption') || lowerHeader.includes('usage')) {
+        const adoptionMetric = metrics.find(m => m.name.toLowerCase().includes('adoption'));
+        if (adoptionMetric) {
+          suggestion = { csvColumn: header, appField: `metric_${adoptionMetric.id}`, isRequired: false };
+        }
+      } else if (lowerHeader.includes('gmv') || lowerHeader.includes('revenue') || lowerHeader.includes('sales')) {
+        const gmvMetric = metrics.find(m => m.name.toLowerCase().includes('gmv'));
+        if (gmvMetric) {
+          suggestion = { csvColumn: header, appField: `metric_${gmvMetric.id}`, isRequired: false };
+        }
+      } else if (lowerHeader.includes('sentiment') || lowerHeader.includes('satisfaction')) {
+        const sentimentMetric = metrics.find(m => m.name.toLowerCase().includes('sentiment'));
+        if (sentimentMetric) {
+          suggestion = { csvColumn: header, appField: `metric_${sentimentMetric.id}`, isRequired: false };
+        }
+      }
+
+      if (suggestion) {
+        suggestions.push(suggestion);
+      }
+    });
+
+    return suggestions;
+  };
+
+  const analyzeCsvFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      const lines = text.split('\n').filter(line => line.trim());
+      if (lines.length > 0) {
+        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        const previewData = lines.slice(1, 6).map(line => 
+          line.split(',').map(cell => cell.trim().replace(/"/g, ''))
+        );
+        
+        setCsvHeaders(headers);
+        setCsvPreviewData(previewData);
+        setShowMappingWizard(true);
+      }
+    };
+    reader.readAsText(file);
   };
 
   return (
@@ -1740,850 +1891,153 @@ const HealthScoreApp = () => {
           </div>
         )}
 
-        {currentPage === "settings" && (
+        {currentPage === "data-mapping" && (
           <div className="fade-in">
             <div className="content-header">
-              <h1 className="text-2xl font-bold text-slate-800">Settings & Data Management</h1>
-              <p className="text-slate-600 mt-1">Manage your application data and configuration settings</p>
+              <h1 className="text-2xl font-bold text-slate-800">CSV Data Mapping</h1>
+              <p className="text-slate-600 mt-1">Create and manage field mapping profiles for automated CSV imports</p>
             </div>
             
             <div className="content-body space-y-6">
-              {/* Storage Information */}
+              {/* Mapping Profiles Management */}
               <div className="professional-card">
                 <div className="card-header-professional">
                   <div className="flex items-center gap-3">
-                    <MdAssessment className="text-xl text-blue-600" />
-                    <h3 className="text-lg font-semibold">Storage Information</h3>
+                    <MdTableChart className="text-xl text-blue-600" />
+                    <h3 className="text-lg font-semibold">Mapping Profiles</h3>
                   </div>
                 </div>
                 <div className="card-content-professional">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-slate-700">{storageInfo.hasData ? 'Yes' : 'No'}</div>
-                      <div className="text-sm text-slate-500">Data Stored</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-slate-700">{Math.round(storageInfo.totalSize / 1024)} KB</div>
-                      <div className="text-sm text-slate-500">Total Size</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-slate-700">{merchants.length}</div>
-                      <div className="text-sm text-slate-500">Records Stored</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-slate-700">
-                        {storageInfo.lastSaved ? new Date(storageInfo.lastSaved).toLocaleDateString() : 'Never'}
-                      </div>
-                      <div className="text-sm text-slate-500">Last Saved</div>
-                    </div>
-                  </div>
-                  {storageInfo.lastSaved && (
-                    <div className="mt-4 text-sm text-gray-600">
-                      Last saved: {new Date(storageInfo.lastSaved).toLocaleString()}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Data Management */}
-              <div className="professional-card">
-                <div className="card-header-professional">
-                  <div className="flex items-center gap-3">
-                    <MdFileDownload className="text-xl text-green-600" />
-                    <h3 className="text-lg font-semibold">Data Management</h3>
-                  </div>
-                </div>
-                <div className="card-content-professional">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Export Data */}
-                    <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
-                      <MdFileDownload className="text-3xl text-green-600 mx-auto mb-2" />
-                      <h4 className="font-semibold text-green-800 mb-2">Export Data</h4>
-                      <p className="text-sm text-green-700 mb-3">
-                        Download all your data as a JSON backup file
-                      </p>
-                      <Button 
-                        onClick={handleExportData}
-                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm"
-                      >
-                        <MdFileDownload className="mr-2" />
-                        Export Backup
-                      </Button>
-                    </div>
-
-                    {/* Import Data */}
-                    <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <MdFileUpload className="text-3xl text-blue-600 mx-auto mb-2" />
-                      <h4 className="font-semibold text-blue-800 mb-2">Import Data</h4>
-                      <p className="text-sm text-blue-700 mb-3">
-                        Restore data from a previous backup file
-                      </p>
-                      <div className="relative">
-                        <input
-                          type="file"
-                          accept=".json"
-                          onChange={handleImportData}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        />
-                        <Button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm">
-                          <MdFileUpload className="mr-2" />
-                          Import Backup
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {mappingProfiles.length === 0 ? (
+                      <div className="col-span-3 text-center py-12 text-gray-500">
+                        <MdTableChart className="mx-auto text-6xl mb-4 text-gray-300" />
+                        <h3 className="text-lg font-semibold mb-2">No Mapping Profiles Yet</h3>
+                        <p className="mb-4">Create your first mapping profile to streamline CSV imports</p>
+                        <Button 
+                          onClick={() => {
+                            const name = prompt('Profile Name (e.g., "Intercom Export"):');
+                            if (name) {
+                              const description = prompt('Description:') || '';
+                              const source = prompt('Data Source (e.g., "Intercom", "StoreHub"):') || 'Unknown';
+                              createMappingProfile(name, description, source);
+                            }
+                          }}
+                          className="btn-primary"
+                        >
+                          <MdAdd className="mr-2" />
+                          Create First Profile
                         </Button>
                       </div>
-                    </div>
-
-                    {/* Clear Data */}
-                    <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
-                      <MdRefresh className="text-3xl text-red-600 mx-auto mb-2" />
-                      <h4 className="font-semibold text-red-800 mb-2">Clear All Data</h4>
-                      <p className="text-sm text-red-700 mb-3">
-                        Remove all stored data and reset the application
-                      </p>
-                      <Button 
-                        onClick={handleClearData}
-                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm"
-                      >
-                        <MdRefresh className="mr-2" />
-                        Clear Data
-                      </Button>
-                    </div>
+                    ) : (
+                      <>
+                        {mappingProfiles.map((profile) => (
+                          <div key={profile.id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors">
+                            <div className="flex items-start justify-between mb-3">
+                              <div>
+                                <h4 className="font-semibold text-gray-900">{profile.name}</h4>
+                                <p className="text-sm text-gray-600">{profile.source}</p>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => setSelectedProfile(profile.id)}
+                                  className={selectedProfile === profile.id ? "btn-primary" : "btn-secondary"}
+                                >
+                                  {selectedProfile === profile.id ? "Selected" : "Select"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => deleteMappingProfile(profile.id)}
+                                  className="bg-red-500 hover:bg-red-600"
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            </div>
+                            <p className="text-sm text-gray-600 mb-3">{profile.description}</p>
+                            <div className="text-xs text-gray-500">
+                              <div>Mappings: {profile.fieldMappings.length}</div>
+                              <div>Created: {new Date(profile.createdAt).toLocaleDateString()}</div>
+                              {profile.lastUsed && <div>Last Used: {new Date(profile.lastUsed).toLocaleDateString()}</div>}
+                            </div>
+                          </div>
+                        ))}
+                        
+                        {/* Add New Profile Button */}
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex items-center justify-center hover:border-blue-400 transition-colors cursor-pointer"
+                             onClick={() => {
+                               const name = prompt('Profile Name (e.g., "Intercom Export"):');
+                               if (name) {
+                                 const description = prompt('Description:') || '';
+                                 const source = prompt('Data Source (e.g., "Intercom", "StoreHub"):') || 'Unknown';
+                                 createMappingProfile(name, description, source);
+                               }
+                             }}>
+                          <div className="text-center">
+                            <MdAdd className="mx-auto text-2xl text-gray-400 mb-2" />
+                            <p className="text-sm text-gray-600">Add New Profile</p>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Application Information */}
+              {/* CSV Upload and Analysis */}
               <div className="professional-card">
                 <div className="card-header-professional">
                   <div className="flex items-center gap-3">
-                    <MdDescription className="text-xl text-gray-600" />
-                    <h3 className="text-lg font-semibold">Application Information</h3>
+                    <MdCloudUpload className="text-xl text-green-600" />
+                    <h3 className="text-lg font-semibold">Upload & Map CSV</h3>
                   </div>
                 </div>
                 <div className="card-content-professional">
                   <div className="space-y-4">
-                    <div className="flex justify-between">
-                      <span className="font-medium">Application Name:</span>
-                      <span>Health Score App</span>
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            analyzeCsvFile(file);
+                          }
+                        }}
+                        className="hidden"
+                        id="csv-analyzer"
+                      />
+                      <label htmlFor="csv-analyzer" className="cursor-pointer">
+                        <MdCloudUpload className="mx-auto text-6xl text-blue-500 mb-4" />
+                        <h4 className="text-lg font-semibold text-gray-900 mb-2">Upload CSV for Analysis</h4>
+                        <p className="text-gray-600 mb-4">
+                          Upload your CSV file to automatically detect field mappings
+                        </p>
+                        <Button className="btn-primary">
+                          Choose CSV File
+                        </Button>
+                      </label>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium">Version:</span>
-                      <span>1.0.0</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium">Local Storage:</span>
-                      <span className={storageInfo.hasData ? 'text-green-600' : 'text-gray-500'}>
-                        {storageInfo.hasData ? 'Active' : 'Empty'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium">Auto-Save:</span>
-                      <span className="text-green-600">Enabled</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Usage Statistics */}
-              <div className="professional-card">
-                <div className="card-header-professional">
-                  <div className="flex items-center gap-3">
-                    <MdTableChart className="text-xl text-purple-600" />
-                    <h3 className="text-lg font-semibold">Usage Statistics</h3>
-                  </div>
-                </div>
-                <div className="card-content-professional">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                    <div>
-                      <div className="text-2xl font-bold text-purple-600">{metrics.length}</div>
-                      <div className="text-sm text-gray-600">Metrics Configured</div>
-                    </div>
-                    <div>
-                      <div className="text-2xl font-bold text-purple-600">{scoreGroups.length}</div>
-                      <div className="text-sm text-gray-600">Score Groups</div>
-                    </div>
-                    <div>
-                      <div className="text-2xl font-bold text-purple-600">{customFields.length}</div>
-                      <div className="text-sm text-gray-600">Custom Fields</div>
-                    </div>
-                    <div>
-                      <div className="text-2xl font-bold text-purple-600">{dataSubmissions.length}</div>
-                      <div className="text-sm text-gray-600">Data Submissions</div>
-                    </div>
+                    
+                    {csvHeaders.length > 0 && (
+                      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <h5 className="font-semibold text-blue-900 mb-2">CSV Analysis Complete</h5>
+                        <p className="text-blue-800 text-sm mb-3">
+                          Found {csvHeaders.length} columns. Review the suggested field mappings below.
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <MdCheckCircle className="text-green-600" />
+                          <span className="text-sm text-green-800">Ready for field mapping</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        )}
-
-        {currentPage === "customers" && (
-          <div className="fade-in">
-            <div className="content-header">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold text-slate-800">Customer Health Reports</h1>
-                  <p className="text-slate-600 mt-1">Monitor and analyze customer performance metrics</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Button onClick={generateCSVTemplate} className="btn-secondary flex items-center gap-2">
-                    <MdFileDownload />
-                    Generate CSV Template
-                  </Button>
-                  <Button 
-                    onClick={() => setShowCSVUploader(!showCSVUploader)}
-                    className="btn-secondary flex items-center gap-2"
-                  >
-                    <MdFileUpload />
-                    Upload CSV Data
-                  </Button>
-                  <Button className="btn-success flex items-center gap-2">
-                    <MdAssessment />
-                    Export Report
-                  </Button>
-                </div>
-              </div>
-              
-              {/* Save Status Notification */}
-              {saveStatus && (
-                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <MdCheckCircle className="text-green-600" />
-                    <span className="text-green-800 font-medium">{saveStatus}</span>
-                  </div>
-                </div>
-              )}
-              
-              {/* CSV Upload Dropdown */}
-              {showCSVUploader && (
-                <div className="mt-4 p-4 border border-gray-200 rounded-lg bg-white shadow-lg">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Upload Section */}
-                    <div>
-                      <label className="form-label">Upload CSV File</label>
-                      <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center bg-blue-50">
-                        <input
-                          type="file"
-                          onChange={handleCSVUpload}
-                          accept=".csv"
-                          className="hidden"
-                          id="csv-upload"
-                        />
-                        <label htmlFor="csv-upload" className="cursor-pointer">
-                          <div className="space-y-2">
-                            <div className="text-2xl flex justify-center">
-                              <MdCloudUpload className="text-blue-500" />
-                            </div>
-                            <div className="text-sm font-medium text-blue-700">
-                              {uploadedCSV ? uploadedCSV.name : "Click to upload CSV file"}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              Use the template format for best results
-                            </div>
-                          </div>
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Preview Section */}
-                    <div>
-                      <label className="form-label">Import Preview</label>
-                      {csvData.length > 0 ? (
-                        <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 max-h-32 overflow-y-auto">
-                          <div className="text-sm font-medium text-gray-700 mb-2">
-                            Found {csvData.length} records to import:
-                          </div>
-                          <div className="space-y-1 text-xs text-gray-600">
-                            {csvData.slice(0, 2).map((row, index) => (
-                              <div key={index} className="truncate">
-                                {row.name} - {row.accountId} ({row.month} {row.year})
-                              </div>
-                            ))}
-                            {csvData.length > 2 && (
-                              <div className="font-medium">...and {csvData.length - 2} more</div>
-                            )}
-                          </div>
-                          <div className="flex gap-2 mt-3">
-                            <Button onClick={importCSVData} className="btn-primary flex-1">
-                              Import {csvData.length} Records
-                            </Button>
-                            <Button 
-                              onClick={() => {
-                                setCsvData([]);
-                                setUploadedCSV(null);
-                                setShowCSVUploader(false);
-                              }}
-                              className="btn-secondary"
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 text-center text-gray-500 text-sm">
-                          Upload a CSV file to see preview
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="content-body space-y-6">
-              {/* Date Range and Controls Section */}
-              <div className="professional-card">
-                <div className="card-content-professional">
-                  <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-2">
-                        <MdDateRange className="text-gray-600 text-sm" />
-                        <label className="form-label mb-0">From Date</label>
-                        <Input 
-                          type="date" 
-                          className="form-control w-40"
-                          defaultValue="2024-11-01"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <MdDateRange className="text-gray-600 text-sm" />
-                        <label className="form-label mb-0">To Date</label>
-                        <Input 
-                          type="date" 
-                          className="form-control w-40"
-                          defaultValue="2024-11-30"
-                        />
-                      </div>
-                      <Button className="btn-primary flex items-center gap-2">
-                        <MdRefresh />
-                        LOAD DATA
-                      </Button>
-                    </div>
-                    
-                    {/* Column Selection Controls */}
-                    <div className="flex items-center gap-3">
-                      <div className="dropdown-container">
-                        <label className="form-label mb-2">Quick Column Selection</label>
-                        <Select 
-                          value={selectedColumns.length > 0 ? "custom" : "none"} 
-                          onValueChange={(value) => {
-                            let newColumns: string[] = [];
-                            if (value === "all") {
-                              newColumns = availableColumns.map(col => col.id);
-                            } else if (value === "standard") {
-                              newColumns = ['customer', 'score', 'status', 'action'];
-                            } else if (value === "metrics") {
-                              newColumns = ['customer', ...metrics.map(m => `metric_${m.id}`), 'score'];
-                            }
-                            
-                            if (newColumns.length > 0) {
-                              setSelectedColumns(newColumns);
-                              saveDataType('selectedColumns', newColumns);
-                              console.log('Quick selection saved:', newColumns);
-                              setSaveStatus(`${value.charAt(0).toUpperCase() + value.slice(1)} columns selected and saved!`);
-                              setTimeout(() => setSaveStatus(''), 2000);
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="dropdown-trigger">
-                            <SelectValue placeholder={`Columns (${selectedColumns.length})`} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">
-                              <div className="flex items-center gap-2">
-                                <MdTableChart />
-                                <span>All Columns ({availableColumns.length})</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="standard">
-                              <div className="flex items-center gap-2">
-                                <HiOutlineDocumentText />
-                                <span>Standard Columns</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="metrics">
-                              <div className="flex items-center gap-2">
-                                <FiBarChart />
-                                <span>Metrics Only</span>
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div className="flex flex-col">
-                        <label className="form-label mb-2">Customize Columns</label>
-                        <Button 
-                          onClick={() => setShowColumnCustomizer(!showColumnCustomizer)}
-                          className="btn-secondary flex items-center gap-2"
-                        >
-                          <MdSettings />
-                          <span>{showColumnCustomizer ? 'Hide Options' : 'Show Options'}</span>
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Collapsible Column Customizer */}
-                  {showColumnCustomizer && (
-                    <div className="mt-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
-                      <div className="flex gap-6">
-                        {/* Column Selection */}
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-gray-800 mb-3">Select Columns</h4>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
-                            {availableColumns.map((column) => (
-                              <label key={column.id} className="flex items-center gap-2 text-sm p-2 hover:bg-white rounded cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedColumns.includes(column.id)}
-                                  onChange={(e) => handleColumnToggle(column.id, e.target.checked)}
-                                  className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                                />
-                                <span className="mr-1">{column.icon}</span>
-                                <span className="text-gray-700">{column.label}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                        
-                        {/* Column Ordering */}
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-gray-800 mb-3">Column Order</h4>
-                          <div className="text-xs text-gray-600 mb-2">
-                            {selectedColumns.length > 0 ? 'Drag items to reorder columns' : 'Select columns to see ordering options'}
-                          </div>
-                          <div className="space-y-2 max-h-48 overflow-y-auto">
-                            {selectedColumns.length === 0 ? (
-                              <div className="text-center py-8 text-gray-500 text-sm border-2 border-dashed border-gray-200 rounded-lg">
-                                <MdTableChart className="mx-auto text-2xl mb-2 text-gray-400" />
-                                <p>No columns selected</p>
-                                <p className="text-xs mt-1">Select columns from the left to start ordering</p>
-                              </div>
-                            ) : (
-                              selectedColumns.map((columnId, index) => {
-                                const column = availableColumns.find(col => col.id === columnId);
-                                if (!column) return null;
-                                
-                                const isDragging = draggedColumnIndex === index;
-                                const isDropTarget = dragOverIndex === index;
-                                
-                                return (
-                                  <div 
-                                    key={columnId} 
-                                    className={`drag-item flex items-center gap-2 p-2 bg-white rounded border cursor-move ${
-                                      isDragging ? 'dragging' : ''
-                                    } ${
-                                      isDropTarget ? 'drop-target' : ''
-                                    }`}
-                                    draggable
-                                    onDragStart={(e) => handleDragStart(e, index)}
-                                    onDragOver={(e) => handleDragOver(e, index)}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={(e) => handleDrop(e, index)}
-                                    onDragEnd={handleDragEnd}
-                                  >
-                                    <MdDragHandle className="drag-handle text-gray-400" />
-                                    <span className="text-xs text-gray-500 w-6">{index + 1}</span>
-                                    <span className="mr-1">{column.icon}</span>
-                                    <span className="flex-1 text-sm">{column.label}</span>
-                                  </div>
-                                );
-                              })
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="mt-4 pt-4 border-t border-gray-300 flex justify-between items-center">
-                        <span className="text-sm text-gray-600">
-                          {selectedColumns.length} of {availableColumns.length} columns selected
-                        </span>
-                        <div className="flex items-center gap-3">
-                          {saveStatus && (
-                            <span className="text-sm text-green-600 font-medium">
-                              {saveStatus}
-                            </span>
-                          )}
-                          <Button 
-                            onClick={handleSaveColumnSettings}
-                            className="btn-primary"
-                          >
-                            Save & Apply Changes
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Enhanced Summary Cards */}
-              <div className="summary-card-grid">
-                <div className="summary-card healthy">
-                  <div className="summary-card-icon healthy">
-                    <MdCheckCircle />
-                  </div>
-                  <div className="summary-card-value">{merchants.filter(m => m.status === "Green").length}</div>
-                  <div className="summary-card-label">Healthy Customers</div>
-                </div>
-                
-                <div className="summary-card warning">
-                  <div className="summary-card-icon warning">
-                    <MdWarning />
-                  </div>
-                  <div className="summary-card-value">{merchants.filter(m => m.status === "Yellow").length}</div>
-                  <div className="summary-card-label">Need Follow-up</div>
-                </div>
-                
-                <div className="summary-card critical">
-                  <div className="summary-card-icon critical">
-                    <MdError />
-                  </div>
-                  <div className="summary-card-value">{merchants.filter(m => m.status === "Red").length}</div>
-                  <div className="summary-card-label">Urgent Action Required</div>
-                </div>
-              </div>
-
-              {/* Main Data Table */}
-              <div className="professional-table">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="table-header">
-                        {selectedColumns.map((columnId) => {
-                          const column = availableColumns.find(col => col.id === columnId);
-                          if (!column) return null;
-                          
-                          // Handle different column types
-                          if (columnId === 'customer') {
-                            return (
-                              <th key={columnId} className="text-left">
-                                <div className="flex items-center gap-2">
-                                  <MdBusiness />
-                                  <span>Customer Name</span>
-                                </div>
-                              </th>
-                            );
-                          } else if (columnId === 'score') {
-                            return (
-                              <th key={columnId} className="text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  <MdAssessment />
-                                  <span>Health Score</span>
-                                </div>
-                              </th>
-                            );
-                          } else if (columnId === 'status') {
-                            return (
-                              <th key={columnId} className="text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  <MdCheckCircle />
-                                  <span>Status</span>
-                                </div>
-                              </th>
-                            );
-                          } else if (columnId === 'action') {
-                            return (
-                              <th key={columnId} className="text-left">
-                                <div className="flex items-center gap-2">
-                                  <MdWarning />
-                                  <span>Required Action</span>
-                                </div>
-                              </th>
-                            );
-                          } else if (columnId.startsWith('custom_')) {
-                            const fieldId = columnId.replace('custom_', '');
-                            const field = customFields.find(f => f.id === fieldId);
-                            if (!field) return null;
-                            return (
-                              <th key={columnId} className="text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  <HiOutlineDocumentText />
-                                  <span>{field.name}</span>
-                                  {field.required && <span className="text-red-500">*</span>}
-                                </div>
-                              </th>
-                            );
-                          } else if (columnId.startsWith('metric_')) {
-                            const metricId = columnId.replace('metric_', '');
-                            const metric = metrics.find(m => m.id === metricId);
-                            if (!metric) return null;
-                            return (
-                              <th key={columnId} className="text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  {metric.name.toLowerCase().includes('ticket') ? <MdConfirmationNumber /> :
-                                   metric.name.toLowerCase().includes('adoption') ? <MdTrendingUp /> :
-                                   metric.name.toLowerCase().includes('gmv') ? <MdAttachMoney /> :
-                                   metric.name.toLowerCase().includes('sentiment') ? <MdSentimentSatisfied /> : <FiBarChart />}
-                                  <span>{metric.name}</span>
-                                </div>
-                              </th>
-                            );
-                          }
-                          return null;
-                        })}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {merchants
-                        .filter(m => 
-                          (!selectedMonth || m.month === selectedMonth) && 
-                          (!selectedYear || m.year === selectedYear)
-                        )
-                        .map((merchant, index) => (
-                          <tr key={merchant.id} className="table-row">
-                            {selectedColumns.map((columnId) => {
-                              // Handle different column types for rows
-                              if (columnId === 'customer') {
-                                return (
-                                  <td key={columnId} className="table-cell">
-                                    <div>
-                                      <div className="font-semibold text-gray-900">{merchant.name}</div>
-                                      <div className="text-sm text-gray-500">{merchant.accountId}</div>
-                                    </div>
-                                  </td>
-                                );
-                              } else if (columnId === 'score') {
-                                return (
-                                  <td key={columnId} className="table-cell text-center">
-                                    <div className="font-bold text-2xl text-gray-900">{merchant.score}</div>
-                                  </td>
-                                );
-                              } else if (columnId === 'status') {
-                                return (
-                                  <td key={columnId} className="table-cell text-center">
-                                    <span className={`status-badge ${
-                                      merchant.status === 'Green' ? 'status-healthy' :
-                                      merchant.status === 'Yellow' ? 'status-warning' : 
-                                      'status-critical'
-                                    }`}>
-                                      {merchant.status}
-                                    </span>
-                                  </td>
-                                );
-                              } else if (columnId === 'action') {
-                                return (
-                                  <td key={columnId} className="table-cell">
-                                    <div className="text-sm text-gray-700 font-medium">{merchant.action}</div>
-                                  </td>
-                                );
-                              } else if (columnId.startsWith('custom_')) {
-                                const fieldId = columnId.replace('custom_', '');
-                                const field = customFields.find(f => f.id === fieldId);
-                                if (!field) return null;
-                                return (
-                                  <td key={columnId} className="table-cell text-center">
-                                    <div className="text-sm text-gray-700">
-                                      {merchant.customFields?.[field.id] || 
-                                       (field.required ? (
-                                         <span className="text-red-500 italic">Required</span>
-                                       ) : (
-                                         <span className="text-gray-400">N/A</span>
-                                       ))
-                                    }
-                                    </div>
-                                  </td>
-                                );
-                              } else if (columnId.startsWith('metric_')) {
-                                const metricId = columnId.replace('metric_', '');
-                                const metric = metrics.find(m => m.id === metricId);
-                                if (!metric) return null;
-                                
-                                return (
-                                  <td key={columnId} className="table-cell text-center">
-                                    <div>
-                                      {/* Manual Input Field for Manual Metrics */}
-                                      {metric.inputType === 'manual' && !metric.useTrending ? (
-                                        <div className="space-y-2">
-                                          <Input
-                                            type="number"
-                                            value={
-                                              typeof merchant.metricValues[metric.id] === 'number' 
-                                                ? (merchant.metricValues[metric.id] as number).toString()
-                                                : ''
-                                            }
-                                            onChange={(e) => {
-                                              const newValue = parseFloat(e.target.value) || 0;
-                                              updateMerchantMetricValue(merchant.id, metric.id, newValue);
-                                            }}
-                                            className="form-control text-center w-24 mx-auto"
-                                            placeholder="0"
-                                            min={metric.lowerBand}
-                                            max={metric.upperBand}
-                                          />
-                                          <div className="text-xs text-gray-500">
-                                            Range: {metric.lowerBand}-{metric.upperBand}
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        // Display-only for Upload metrics or Trending metrics
-                                        <div className="font-semibold text-gray-900">
-                                          {merchant.metricValues[metric.id] !== undefined ? (
-                                            <>
-                                              {(() => {
-                                                const value = merchant.metricValues[metric.id];
-                                                if (metric.useTrending && Array.isArray(value)) {
-                                                  // Trending display: show M4 (most recent) with trend indicator
-                                                  const mostRecent = value[3] || 0;
-                                                  return (
-                                                    <div className="flex items-center gap-1">
-                                                      <span>
-                                                        {metric.name.toLowerCase().includes('ticket') && `${mostRecent} tickets`}
-                                                        {metric.name.toLowerCase().includes('adoption') && mostRecent}
-                                                        {metric.name.toLowerCase().includes('gmv') && mostRecent.toLocaleString()}
-                                                        {metric.name.toLowerCase().includes('sentiment') && mostRecent}
-                                                        {!metric.name.toLowerCase().includes('ticket') && 
-                                                         !metric.name.toLowerCase().includes('adoption') && 
-                                                         !metric.name.toLowerCase().includes('gmv') && 
-                                                         !metric.name.toLowerCase().includes('sentiment') && 
-                                                         mostRecent}
-                                                      </span>
-                                                      <MdTrendingUp className="text-xs text-blue-500" />
-                                                    </div>
-                                                  );
-                                                } else if (typeof value === 'number') {
-                                                  // Single value display
-                                                  return (
-                                                    <>
-                                                      {metric.name.toLowerCase().includes('ticket') && `${value} tickets`}
-                                                      {metric.name.toLowerCase().includes('adoption') && value}
-                                                      {metric.name.toLowerCase().includes('gmv') && value.toLocaleString()}
-                                                      {metric.name.toLowerCase().includes('sentiment') && value}
-                                                      {!metric.name.toLowerCase().includes('ticket') && 
-                                                       !metric.name.toLowerCase().includes('adoption') && 
-                                                       !metric.name.toLowerCase().includes('gmv') && 
-                                                       !metric.name.toLowerCase().includes('sentiment') && 
-                                                       value}
-                                                    </>
-                                                  );
-                                                } else {
-                                                  return 'Invalid Data';
-                                                }
-                                              })()}
-                                            </>
-                                          ) : (
-                                            <span className="text-gray-400 italic">
-                                              {metric.inputType === 'upload' ? 'Upload Required' : 'No Data'}
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                      
-                                      {/* Status Badge */}
-                                      {merchant.metricValues[metric.id] !== undefined && (
-                                        <div className={`mt-1 ${
-                                          // Dynamic target evaluation based on metric type
-                                          (() => {
-                                            const value = merchant.metricValues[metric.id];
-                                            
-                                            if (metric.useTrending && Array.isArray(value) && value.length === 4) {
-                                              const [m1, m2, m3, m4] = value;
-                                              if (m1 < m2 && m2 < m3 && m3 < m4) return 'trending-badge trending-up';
-                                              if (m1 === m2 && m2 === m3 && m3 === m4) return 'trending-badge trending-equal';
-                                              if (m1 > m2 && m2 > m3 && m3 > m4) return 'trending-badge trending-down';
-                                              return 'trending-badge trending-mixed';
-                                            } else if (typeof value === 'number') {
-                                              // Single value comparison - use existing metric-badge classes
-                                              if (metric.lowerIsBetter) {
-                                                return value <= metric.upperBand ? 'metric-badge metric-good' : 'metric-badge metric-bad';
-                                              } else {
-                                                return value >= metric.lowerBand ? 'metric-badge metric-good' : 'metric-badge metric-bad';
-                                              }
-                                            } else {
-                                              return 'metric-badge metric-bad'; // Invalid data
-                                            }
-                                          })()
-                                        }`}>
-                                          {(() => {
-                                            const value = merchant.metricValues[metric.id];
-                                            
-                                            if (metric.useTrending && Array.isArray(value) && value.length === 4) {
-                                              const [m1, m2, m3, m4] = value;
-                                              if (m1 < m2 && m2 < m3 && m3 < m4) return 'Trending Up';
-                                              if (m1 === m2 && m2 === m3 && m3 === m4) return 'Stable';
-                                              if (m1 > m2 && m2 > m3 && m3 > m4) return 'Trending Down';
-                                              return 'Mixed Trend';
-                                            } else if (typeof value === 'number') {
-                                              if (metric.lowerIsBetter) {
-                                                return value <= metric.upperBand ? 'Healthy' : 'Unhealthy';
-                                              } else {
-                                                return value >= metric.lowerBand ? 'Healthy' : 'Unhealthy';
-                                              }
-                                            } else {
-                                              return 'Invalid';
-                                            }
-                                          })()}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </td>
-                                );
-                              }
-                              return null;
-                            })}
-                          </tr>
-                        ))}
-                    </tbody>
-                    {/* Summary Footer */}
-                    <tfoot>
-                      <tr className="table-footer">
-                        {selectedColumns.map((columnId) => {
-                          if (columnId === 'customer') {
-                            return <td key={columnId}>TOTALS ({merchants.length} Records)</td>;
-                          } else if (columnId === 'score') {
-                            return (
-                              <td key={columnId} className="text-center font-bold text-xl">
-                                {merchants.length > 0 ? Math.round(merchants.reduce((sum, m) => sum + m.score, 0) / merchants.length) : 0}
-                              </td>
-                            );
-                          } else if (columnId === 'status') {
-                            return (
-                              <td key={columnId} className="text-center">
-                                {merchants.filter(m => m.status === 'Green').length}G / {merchants.filter(m => m.status === 'Yellow').length}Y / {merchants.filter(m => m.status === 'Red').length}R
-                              </td>
-                            );
-                          } else if (columnId === 'action') {
-                            return <td key={columnId}>Overall Performance Summary</td>;
-                          } else if (columnId.startsWith('metric_')) {
-                            const metricId = columnId.replace('metric_', '');
-                            const metric = metrics.find(m => m.id === metricId);
-                            if (!metric) return <td key={columnId}>-</td>;
-                            const values = merchants
-                              .map(m => {
-                                const value = m.metricValues[metric.id];
-                                if (metric.useTrending && Array.isArray(value) && value.length === 4) {
-                                  // For trending, use the most recent value (M4)
-                                  return value[3];
-                                } else if (typeof value === 'number') {
-                                  return value;
-                                } else {
-                                  return undefined;
-                                }
-                              })
-                              .filter(v => v !== undefined) as number[];
-                            const avg = values.length > 0 ? values.reduce((sum, v) => sum + v, 0) / values.length : 0;
-                            return (
-                              <td key={columnId} className="text-center">
-                                {metric.name.toLowerCase().includes('ticket') && `${avg.toFixed(1)} tickets avg`}
-                                {metric.name.toLowerCase().includes('adoption') && `${avg.toFixed(1)} avg`}
-                                {metric.name.toLowerCase().includes('gmv') && `${avg.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} avg`}
-                                {metric.name.toLowerCase().includes('sentiment') && `${avg.toFixed(1)} avg`}
-                                {!metric.name.toLowerCase().includes('ticket') && 
-                                 !metric.name.toLowerCase().includes('adoption') && 
-                                 !metric.name.toLowerCase().includes('gmv') && 
-                                 !metric.name.toLowerCase().includes('sentiment') && 
-                                 `${avg.toFixed(1)} avg`}
-                              </td>
-                            );
-                          } else {
-                            return <td key={columnId} className="text-center">-</td>;
-                          }
-                        })}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
             </div>
           </div>
         )}
