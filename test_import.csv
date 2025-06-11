@@ -1,0 +1,4 @@
+Customer Name,Account ID,Ticket_M1 (0-24),Ticket_M2 (0-24),Ticket_M3 (0-24),Ticket_M4 (0-24),Adoption (0-100),GMV (0-1000000),Sentiment (1-10),Industry (Retail|Healthcare|Finance|Technology),Contract Value (number),Start Date (date)
+Test Customer A,ACC100,15,12,8,5,85,750000,8,Technology,150000,2024-01-15
+Test Customer B,ACC101,20,18,15,12,45,250000,6,Retail,45000,2024-02-20
+Test Customer C,ACC102,10,8,6,4,90,950000,9,Healthcare,200000,2024-03-10 

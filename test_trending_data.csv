@@ -1,0 +1,10 @@
+Customer Name,Account ID,Ticket_M1 (0-24),Ticket_M2 (0-24),Ticket_M3 (0-24),Ticket_M4 (0-24),Adoption (0-100),GMV (0-1000000),Sentiment (1-10),Industry,Contract Value,Start Date
+TechCorp Solutions,ACC001,15,12,8,5,75,450000,8,Technology,250000,2024-01-15
+HealthPlus Medical,ACC002,20,18,16,14,85,320000,7,Healthcare,180000,2024-02-01
+RetailMax Chain,ACC003,8,9,10,11,60,680000,6,Retail,420000,2024-01-20
+FinanceFirst Bank,ACC004,12,10,7,4,92,890000,9,Finance,650000,2024-03-10
+EduTech Academy,ACC005,18,15,12,9,78,125000,8,Technology,95000,2024-02-15
+GreenTech Startup,ACC006,5,8,12,16,88,275000,9,Technology,150000,2024-03-01
+StableCorps Inc,ACC007,10,10,10,10,70,500000,7,Finance,300000,2024-01-10
+DeclineCorp Ltd,ACC008,6,9,15,20,45,200000,4,Retail,100000,2024-02-20
+MixedTrends Co,ACC009,12,8,15,10,65,350000,6,Healthcare,175000,2024-04-01 
