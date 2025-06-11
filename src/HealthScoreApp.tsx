@@ -378,10 +378,6 @@ const HealthScoreApp = () => {
   useEffect(() => {
     if (!isLoading) {
       saveDataType('selectedColumns', selectedColumns);
-      if (selectedColumns.length > 0) {
-        setSaveStatus('Auto-saved');
-        setTimeout(() => setSaveStatus(''), 1500);
-      }
     }
   }, [selectedColumns, isLoading]);
 
@@ -403,7 +399,7 @@ const HealthScoreApp = () => {
     );
   }, [metrics, scoreGroups]);
 
-  // Update selected columns when metrics or custom fields change
+  // Only update selected columns when metrics change if user hasn't customized them
   useEffect(() => {
     const newColumns = ['customer'];
     
@@ -415,8 +411,14 @@ const HealthScoreApp = () => {
     // Add standard columns
     newColumns.push('score', 'status', 'action');
     
-    // Only update if we don't have any current selection or if metrics/fields changed significantly
-    if (selectedColumns.length <= 5) {
+    // Only update if we have default columns (not customized by user) or if it's the initial load
+    const hasDefaultColumns = selectedColumns.length === 4 && 
+      selectedColumns.includes('customer') && 
+      selectedColumns.includes('score') && 
+      selectedColumns.includes('status') && 
+      selectedColumns.includes('action');
+    
+    if (hasDefaultColumns && !hasStoredData()) {
       setSelectedColumns(newColumns);
     }
   }, [metrics, customFields]);
@@ -902,7 +904,9 @@ const HealthScoreApp = () => {
     newColumns.splice(toIndex, 0, movedColumn);
     setSelectedColumns(newColumns);
     
-    // Show save confirmation
+    // Force save immediately and show confirmation
+    saveDataType('selectedColumns', newColumns);
+    console.log('Saved column order:', newColumns);
     setSaveStatus('Column order saved!');
     setTimeout(() => setSaveStatus(''), 2000);
   };
@@ -1009,23 +1013,28 @@ const HealthScoreApp = () => {
   // Enhanced save function for column customizer
   const handleSaveColumnSettings = () => {
     // Force save to localStorage
-    saveDataType('selectedColumns', selectedColumns);
+    const saved = saveDataType('selectedColumns', selectedColumns);
+    console.log('Force save result:', saved, 'Columns:', selectedColumns);
     setStorageInfo(getStorageInfo());
     setSaveStatus('Column settings saved successfully!');
     setTimeout(() => setSaveStatus(''), 3000);
     setShowColumnCustomizer(false);
   };
 
-  // Auto-save with confirmation
-  useEffect(() => {
-    if (!isLoading) {
-      saveDataType('selectedColumns', selectedColumns);
-      if (selectedColumns.length > 0) {
-        setSaveStatus('Auto-saved column settings');
-        setTimeout(() => setSaveStatus(''), 1500);
-      }
-    }
-  }, [selectedColumns, isLoading]);
+  // Enhanced column selection handler
+  const handleColumnToggle = (columnId: string, checked: boolean) => {
+    const newColumns = checked 
+      ? [...selectedColumns, columnId]
+      : selectedColumns.filter(col => col !== columnId);
+    
+    setSelectedColumns(newColumns);
+    
+    // Force save immediately
+    saveDataType('selectedColumns', newColumns);
+    console.log('Saved column selection:', newColumns);
+    setSaveStatus('Column selection saved!');
+    setTimeout(() => setSaveStatus(''), 1500);
+  };
 
   return (
     <div className="app-container">
@@ -2057,12 +2066,21 @@ const HealthScoreApp = () => {
                         <Select 
                           value={selectedColumns.length > 0 ? "custom" : "none"} 
                           onValueChange={(value) => {
+                            let newColumns: string[] = [];
                             if (value === "all") {
-                              setSelectedColumns(availableColumns.map(col => col.id));
+                              newColumns = availableColumns.map(col => col.id);
                             } else if (value === "standard") {
-                              setSelectedColumns(['customer', 'score', 'status', 'action']);
+                              newColumns = ['customer', 'score', 'status', 'action'];
                             } else if (value === "metrics") {
-                              setSelectedColumns(['customer', ...metrics.map(m => `metric_${m.id}`), 'score']);
+                              newColumns = ['customer', ...metrics.map(m => `metric_${m.id}`), 'score'];
+                            }
+                            
+                            if (newColumns.length > 0) {
+                              setSelectedColumns(newColumns);
+                              saveDataType('selectedColumns', newColumns);
+                              console.log('Quick selection saved:', newColumns);
+                              setSaveStatus(`${value.charAt(0).toUpperCase() + value.slice(1)} columns selected and saved!`);
+                              setTimeout(() => setSaveStatus(''), 2000);
                             }
                           }}
                         >
@@ -2118,13 +2136,7 @@ const HealthScoreApp = () => {
                                 <input
                                   type="checkbox"
                                   checked={selectedColumns.includes(column.id)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedColumns([...selectedColumns, column.id]);
-                                    } else {
-                                      setSelectedColumns(selectedColumns.filter(col => col !== column.id));
-                                    }
-                                  }}
+                                  onChange={(e) => handleColumnToggle(column.id, e.target.checked)}
                                   className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
                                 />
                                 <span className="mr-1">{column.icon}</span>
