@@ -47,7 +47,8 @@ import {
   MdDescription,
   MdAttachMoney,
   MdSentimentSatisfied,
-  MdConfirmationNumber
+  MdConfirmationNumber,
+  MdDragHandle
 } from 'react-icons/md';
 
 import { 
@@ -909,6 +910,45 @@ const HealthScoreApp = () => {
     if (currentIndex < selectedColumns.length - 1) {
       moveColumn(currentIndex, currentIndex + 1);
     }
+  };
+
+  // Drag and Drop functionality for column reordering
+  const [draggedColumnIndex, setDraggedColumnIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedColumnIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', '');
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedColumnIndex !== null && draggedColumnIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Only clear if we're actually leaving the container, not moving between children
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverIndex(null);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (draggedColumnIndex !== null && draggedColumnIndex !== dropIndex) {
+      moveColumn(draggedColumnIndex, dropIndex);
+    }
+    setDraggedColumnIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedColumnIndex(null);
+    setDragOverIndex(null);
   };
 
   // Local Storage Management Functions
@@ -2057,39 +2097,47 @@ const HealthScoreApp = () => {
                         {/* Column Ordering */}
                         <div className="flex-1">
                           <h4 className="font-semibold text-gray-800 mb-3">Column Order</h4>
+                          <div className="text-xs text-gray-600 mb-2">
+                            {selectedColumns.length > 0 ? 'Drag items to reorder columns' : 'Select columns to see ordering options'}
+                          </div>
                           <div className="space-y-2 max-h-48 overflow-y-auto">
-                            {selectedColumns.map((columnId, index) => {
-                              const column = availableColumns.find(col => col.id === columnId);
-                              if (!column) return null;
-                              
-                              return (
-                                <div key={columnId} className="flex items-center gap-2 p-2 bg-white rounded border">
-                                  <span className="text-xs text-gray-500 w-6">{index + 1}</span>
-                                  <span className="mr-1">{column.icon}</span>
-                                  <span className="flex-1 text-sm">{column.label}</span>
-                                  <div className="flex gap-1">
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => moveColumnUp(columnId)}
-                                      disabled={index === 0}
-                                      className="w-6 h-6 p-0 text-xs"
-                                    >
-                                      <MdArrowUpward />
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => moveColumnDown(columnId)}
-                                      disabled={index === selectedColumns.length - 1}
-                                      className="w-6 h-6 p-0 text-xs"
-                                    >
-                                      <MdArrowDownward />
-                                    </Button>
+                            {selectedColumns.length === 0 ? (
+                              <div className="text-center py-8 text-gray-500 text-sm border-2 border-dashed border-gray-200 rounded-lg">
+                                <MdTableChart className="mx-auto text-2xl mb-2 text-gray-400" />
+                                <p>No columns selected</p>
+                                <p className="text-xs mt-1">Select columns from the left to start ordering</p>
+                              </div>
+                            ) : (
+                              selectedColumns.map((columnId, index) => {
+                                const column = availableColumns.find(col => col.id === columnId);
+                                if (!column) return null;
+                                
+                                const isDragging = draggedColumnIndex === index;
+                                const isDropTarget = dragOverIndex === index;
+                                
+                                return (
+                                  <div 
+                                    key={columnId} 
+                                    className={`drag-item flex items-center gap-2 p-2 bg-white rounded border cursor-move ${
+                                      isDragging ? 'dragging' : ''
+                                    } ${
+                                      isDropTarget ? 'drop-target' : ''
+                                    }`}
+                                    draggable
+                                    onDragStart={(e) => handleDragStart(e, index)}
+                                    onDragOver={(e) => handleDragOver(e, index)}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, index)}
+                                    onDragEnd={handleDragEnd}
+                                  >
+                                    <MdDragHandle className="drag-handle text-gray-400" />
+                                    <span className="text-xs text-gray-500 w-6">{index + 1}</span>
+                                    <span className="mr-1">{column.icon}</span>
+                                    <span className="flex-1 text-sm">{column.label}</span>
                                   </div>
-                                </div>
-                              );
-                            })}
+                                );
+                              })
+                            )}
                           </div>
                         </div>
                       </div>

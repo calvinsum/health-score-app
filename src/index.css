@@ -1003,3 +1003,65 @@
     padding: 1rem !important;
   }
 }
+
+/* Enhanced Drag and Drop Styles */
+.drag-item {
+  transition: all 0.2s ease;
+}
+
+.drag-item:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.drag-item.dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.drag-item.drop-target {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.drag-handle {
+  cursor: grab;
+  transition: color 0.2s ease;
+}
+
+.drag-handle:hover {
+  color: #6b7280;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Drag preview effect */
+.dragging * {
+  pointer-events: none;
+}
+
+/* Drop zone indicator */
+.drop-zone-indicator {
+  position: relative;
+}
+
+.drop-zone-indicator::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: #3b82f6;
+  border-radius: 1px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.drop-zone-indicator.active::before {
+  opacity: 1;
+}
