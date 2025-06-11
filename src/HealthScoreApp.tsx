@@ -2040,8 +2040,6 @@ const HealthScoreApp = () => {
               </div>
             </div>
           </div>
-            </div>
-          </div>
         )}
 
         {/* Field Mapping Wizard Modal */}
