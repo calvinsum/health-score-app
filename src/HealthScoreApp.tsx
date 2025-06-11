@@ -6,6 +6,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
+// Import local storage utilities
+import { 
+  saveToLocalStorage, 
+  loadFromLocalStorage, 
+  saveDataType, 
+  hasStoredData,
+  getStorageInfo,
+  clearLocalStorage,
+  exportData,
+  importData
+} from "@/lib/localStorage";
+
 // Import professional icons from react-icons
 import { 
   MdDashboard, 
@@ -122,26 +134,63 @@ const HealthScoreApp = () => {
   const [showColumnCustomizer, setShowColumnCustomizer] = useState(false);
   const [showCSVUploader, setShowCSVUploader] = useState(false);
 
-  // State for metrics
-  const [metrics, setMetrics] = useState<Metric[]>([
+  // Storage states
+  const [storageInfo, setStorageInfo] = useState(getStorageInfo());
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Initialize all state with localStorage data or defaults
+  const initializeState = () => {
+    if (hasStoredData()) {
+      const savedData = loadFromLocalStorage();
+      return {
+        metrics: savedData.metrics.length > 0 ? savedData.metrics : getDefaultMetrics(),
+        scoreGroups: savedData.scoreGroups.length > 0 ? savedData.scoreGroups : getDefaultScoreGroups(),
+        customFields: savedData.customFields.length > 0 ? savedData.customFields : getDefaultCustomFields(),
+        merchants: savedData.merchants,
+        selectedColumns: savedData.selectedColumns.length > 0 ? savedData.selectedColumns : ['customer', 'score', 'status', 'action'],
+        dataSubmissions: savedData.dataSubmissions
+      };
+    }
+    return {
+      metrics: getDefaultMetrics(),
+      scoreGroups: getDefaultScoreGroups(),
+      customFields: getDefaultCustomFields(),
+      merchants: [],
+      selectedColumns: ['customer', 'score', 'status', 'action'],
+      dataSubmissions: []
+    };
+  };
+
+  // Default data functions
+  const getDefaultMetrics = (): Metric[] => [
     { id: "1", name: "Ticket", weight: 30, inputType: "upload", lowerBand: 0, upperBand: 24, lowerIsBetter: true, useTrending: true },
     { id: "2", name: "Adoption", weight: 20, inputType: "upload", lowerBand: 0, upperBand: 100, lowerIsBetter: false, useTrending: false },
     { id: "3", name: "GMV", weight: 25, inputType: "upload", lowerBand: 0, upperBand: 1000000, lowerIsBetter: false, useTrending: false },
     { id: "4", name: "Sentiment", weight: 25, inputType: "manual", lowerBand: 1, upperBand: 10, lowerIsBetter: false, useTrending: false }
-  ]);
+  ];
 
-  const [customFields, setCustomFields] = useState<CustomField[]>([
-    { id: "1", name: "Industry", type: "select", required: true, options: ["Retail", "Healthcare", "Finance", "Technology"] },
-    { id: "2", name: "Contract Value", type: "number", required: false },
-    { id: "3", name: "Start Date", type: "date", required: true }
-  ]);
-
-  const [scoreGroups, setScoreGroups] = useState<ScoreGroup[]>([
+  const getDefaultScoreGroups = (): ScoreGroup[] => [
     { id: "1", name: "Green", minScore: 90, maxScore: 100, action: "Excellent performance - continue current strategy", color: "bg-green-100 text-green-800 border-green-200" },
     { id: "2", name: "Yellow", minScore: 70, maxScore: 89, action: "Good performance - monitor closely and follow-up within 7 days", color: "bg-yellow-100 text-yellow-800 border-yellow-200" },
     { id: "3", name: "Red", minScore: 0, maxScore: 69, action: "Poor performance - urgent escalation and intervention within 24 hours", color: "bg-red-100 text-red-800 border-red-200" },
     { id: "4", name: "Grey", minScore: 0, maxScore: 0, action: "Neutral status - awaiting data or assessment", color: "bg-gray-100 text-gray-800 border-gray-200" }
-  ]);
+  ];
+
+  const getDefaultCustomFields = (): CustomField[] => [
+    { id: "1", name: "Industry", type: "select", required: true, options: ["Retail", "Healthcare", "Finance", "Technology"] },
+    { id: "2", name: "Contract Value", type: "number", required: false },
+    { id: "3", name: "Start Date", type: "date", required: true }
+  ];
+
+  // Initialize state
+  const initialState = initializeState();
+  
+  // State for metrics
+  const [metrics, setMetrics] = useState<Metric[]>(initialState.metrics);
+
+  const [customFields, setCustomFields] = useState<CustomField[]>(initialState.customFields);
+
+  const [scoreGroups, setScoreGroups] = useState<ScoreGroup[]>(initialState.scoreGroups);
 
   // Dynamic helper function to calculate health score based on current metrics
   const calculateHealthScore = (merchantMetricValues: Record<string, number | number[]>) => {
@@ -206,11 +255,30 @@ const HealthScoreApp = () => {
     return group ? { status: group.name, action: group.action } : { status: "Unknown", action: "Review required" };
   };
 
-  const [merchants, setMerchants] = useState<Merchant[]>([]);
+  const [merchants, setMerchants] = useState<Merchant[]>(initialState.merchants);
 
-  // Add sample merchants for demonstration
+  // Data submission states
+  const [selectedMetric, setSelectedMetric] = useState<string>("");
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
+  const [selectedYear, setSelectedYear] = useState<string>("");
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [manualValue, setManualValue] = useState<string>("");
+  const [dataSubmissions, setDataSubmissions] = useState<DataSubmission[]>(
+    initialState.dataSubmissions.length > 0 ? initialState.dataSubmissions : [
+      { id: "1", metricId: "1", metricName: "Ticket", month: "November", year: "2024", fileName: "tickets_nov.csv", submittedAt: "2024-11-15", status: "processed" },
+      { id: "2", metricId: "2", metricName: "Adoption", month: "October", year: "2024", fileName: "adoption_oct.xlsx", submittedAt: "2024-11-01", status: "processed" }
+    ]
+  );
+
+  // Initialize selectedColumns from localStorage
   useEffect(() => {
-    if (merchants.length === 0) {
+    setSelectedColumns(initialState.selectedColumns);
+    setIsLoading(false);
+  }, []);
+
+  // Add sample merchants for demonstration if no merchants exist
+  useEffect(() => {
+    if (merchants.length === 0 && !hasStoredData()) {
       const sampleMerchants: Merchant[] = [
         {
           id: "1",
@@ -280,6 +348,44 @@ const HealthScoreApp = () => {
     }
   }, []);
 
+  // Auto-save to localStorage whenever state changes
+  useEffect(() => {
+    if (!isLoading) {
+      saveDataType('metrics', metrics);
+    }
+  }, [metrics, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      saveDataType('scoreGroups', scoreGroups);
+    }
+  }, [scoreGroups, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      saveDataType('customFields', customFields);
+    }
+  }, [customFields, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      saveDataType('merchants', merchants);
+    }
+  }, [merchants, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      saveDataType('selectedColumns', selectedColumns);
+    }
+  }, [selectedColumns, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      saveDataType('dataSubmissions', dataSubmissions);
+      setStorageInfo(getStorageInfo());
+    }
+  }, [dataSubmissions, isLoading]);
+
   // Recalculate all merchant scores when metrics or score groups change
   useEffect(() => {
     setMerchants(currentMerchants => 
@@ -325,17 +431,6 @@ const HealthScoreApp = () => {
     { id: 'action', label: 'Required Action', icon: <MdWarning /> },
     ...customFields.map(field => ({ id: `custom_${field.id}`, label: field.name, icon: <HiOutlineDocumentText /> }))
   ];
-
-  // Data submission states
-  const [selectedMetric, setSelectedMetric] = useState<string>("");
-  const [selectedMonth, setSelectedMonth] = useState<string>("");
-  const [selectedYear, setSelectedYear] = useState<string>("");
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [manualValue, setManualValue] = useState<string>("");
-  const [dataSubmissions, setDataSubmissions] = useState<DataSubmission[]>([
-    { id: "1", metricId: "1", metricName: "Ticket", month: "November", year: "2024", fileName: "tickets_nov.csv", submittedAt: "2024-11-15", status: "processed" },
-    { id: "2", metricId: "2", metricName: "Adoption", month: "October", year: "2024", fileName: "adoption_oct.xlsx", submittedAt: "2024-11-01", status: "processed" }
-  ]);
 
   // New form states
   const [newMetric, setNewMetric] = useState<{ name: string; weight: number; inputType: "manual" | "upload"; lowerBand: number; upperBand: number; lowerIsBetter: boolean; useTrending: boolean }>({ 
@@ -531,6 +626,7 @@ const HealthScoreApp = () => {
     { id: "metrics", label: "Metrics Config", icon: <MdSettings /> },
     { id: "score-rules", label: "Score Rules", icon: <MdStar /> },
     { id: "customers", label: "Customers", icon: <MdPeople /> },
+    { id: "settings", label: "Settings", icon: <MdSettings /> },
   ];
 
   // CSV Template Generation Function
@@ -786,6 +882,52 @@ const HealthScoreApp = () => {
     const currentIndex = selectedColumns.indexOf(columnId);
     if (currentIndex < selectedColumns.length - 1) {
       moveColumn(currentIndex, currentIndex + 1);
+    }
+  };
+
+  // Local Storage Management Functions
+  const handleClearData = () => {
+    if (window.confirm('Are you sure you want to clear all data? This action cannot be undone.')) {
+      clearLocalStorage();
+      window.location.reload();
+    }
+  };
+
+  const handleExportData = () => {
+    try {
+      const dataString = exportData();
+      const blob = new Blob([dataString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `health-score-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert('Error exporting data: ' + error);
+    }
+  };
+
+  const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const content = e.target?.result as string;
+          if (importData(content)) {
+            alert('Data imported successfully! The page will reload to apply changes.');
+            window.location.reload();
+          } else {
+            alert('Failed to import data. Please check the file format.');
+          }
+        } catch (error) {
+          alert('Error importing data: ' + error);
+        }
+      };
+      reader.readAsText(file);
     }
   };
 
@@ -1473,6 +1615,182 @@ const HealthScoreApp = () => {
                           Add Group
                         </Button>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {currentPage === "settings" && (
+          <div className="fade-in">
+            <div className="content-header">
+              <h1 className="text-2xl font-bold text-slate-800">Settings & Data Management</h1>
+              <p className="text-slate-600 mt-1">Manage your application data and configuration settings</p>
+            </div>
+            
+            <div className="content-body space-y-6">
+              {/* Storage Information */}
+              <div className="professional-card">
+                <div className="card-header-professional">
+                  <div className="flex items-center gap-3">
+                    <MdAssessment className="text-xl text-blue-600" />
+                    <h3 className="text-lg font-semibold">Storage Information</h3>
+                  </div>
+                </div>
+                <div className="card-content-professional">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-slate-700">{storageInfo.hasData ? 'Yes' : 'No'}</div>
+                      <div className="text-sm text-slate-500">Data Stored</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-slate-700">{Math.round(storageInfo.totalSize / 1024)} KB</div>
+                      <div className="text-sm text-slate-500">Total Size</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-slate-700">{merchants.length}</div>
+                      <div className="text-sm text-slate-500">Records Stored</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-slate-700">
+                        {storageInfo.lastSaved ? new Date(storageInfo.lastSaved).toLocaleDateString() : 'Never'}
+                      </div>
+                      <div className="text-sm text-slate-500">Last Saved</div>
+                    </div>
+                  </div>
+                  {storageInfo.lastSaved && (
+                    <div className="mt-4 text-sm text-gray-600">
+                      Last saved: {new Date(storageInfo.lastSaved).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Data Management */}
+              <div className="professional-card">
+                <div className="card-header-professional">
+                  <div className="flex items-center gap-3">
+                    <MdFileDownload className="text-xl text-green-600" />
+                    <h3 className="text-lg font-semibold">Data Management</h3>
+                  </div>
+                </div>
+                <div className="card-content-professional">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Export Data */}
+                    <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
+                      <MdFileDownload className="text-3xl text-green-600 mx-auto mb-2" />
+                      <h4 className="font-semibold text-green-800 mb-2">Export Data</h4>
+                      <p className="text-sm text-green-700 mb-3">
+                        Download all your data as a JSON backup file
+                      </p>
+                      <Button 
+                        onClick={handleExportData}
+                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm"
+                      >
+                        <MdFileDownload className="mr-2" />
+                        Export Backup
+                      </Button>
+                    </div>
+
+                    {/* Import Data */}
+                    <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <MdFileUpload className="text-3xl text-blue-600 mx-auto mb-2" />
+                      <h4 className="font-semibold text-blue-800 mb-2">Import Data</h4>
+                      <p className="text-sm text-blue-700 mb-3">
+                        Restore data from a previous backup file
+                      </p>
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept=".json"
+                          onChange={handleImportData}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        />
+                        <Button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm">
+                          <MdFileUpload className="mr-2" />
+                          Import Backup
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Clear Data */}
+                    <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
+                      <MdRefresh className="text-3xl text-red-600 mx-auto mb-2" />
+                      <h4 className="font-semibold text-red-800 mb-2">Clear All Data</h4>
+                      <p className="text-sm text-red-700 mb-3">
+                        Remove all stored data and reset the application
+                      </p>
+                      <Button 
+                        onClick={handleClearData}
+                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm"
+                      >
+                        <MdRefresh className="mr-2" />
+                        Clear Data
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Application Information */}
+              <div className="professional-card">
+                <div className="card-header-professional">
+                  <div className="flex items-center gap-3">
+                    <MdDescription className="text-xl text-gray-600" />
+                    <h3 className="text-lg font-semibold">Application Information</h3>
+                  </div>
+                </div>
+                <div className="card-content-professional">
+                  <div className="space-y-4">
+                    <div className="flex justify-between">
+                      <span className="font-medium">Application Name:</span>
+                      <span>Health Score App</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium">Version:</span>
+                      <span>1.0.0</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium">Local Storage:</span>
+                      <span className={storageInfo.hasData ? 'text-green-600' : 'text-gray-500'}>
+                        {storageInfo.hasData ? 'Active' : 'Empty'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium">Auto-Save:</span>
+                      <span className="text-green-600">Enabled</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Usage Statistics */}
+              <div className="professional-card">
+                <div className="card-header-professional">
+                  <div className="flex items-center gap-3">
+                    <MdTableChart className="text-xl text-purple-600" />
+                    <h3 className="text-lg font-semibold">Usage Statistics</h3>
+                  </div>
+                </div>
+                <div className="card-content-professional">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                    <div>
+                      <div className="text-2xl font-bold text-purple-600">{metrics.length}</div>
+                      <div className="text-sm text-gray-600">Metrics Configured</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-purple-600">{scoreGroups.length}</div>
+                      <div className="text-sm text-gray-600">Score Groups</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-purple-600">{customFields.length}</div>
+                      <div className="text-sm text-gray-600">Custom Fields</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-purple-600">{dataSubmissions.length}</div>
+                      <div className="text-sm text-gray-600">Data Submissions</div>
                     </div>
                   </div>
                 </div>
