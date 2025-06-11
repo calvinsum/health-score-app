@@ -48,7 +48,9 @@ import {
   MdAttachMoney,
   MdSentimentSatisfied,
   MdConfirmationNumber,
-  MdDragHandle
+  MdDragHandle,
+  MdAutoAwesome,
+  MdSave
 } from 'react-icons/md';
 
 import { 
@@ -2038,6 +2040,226 @@ const HealthScoreApp = () => {
               </div>
             </div>
           </div>
+            </div>
+          </div>
+        )}
+
+        {/* Field Mapping Wizard Modal */}
+        {showMappingWizard && csvHeaders.length > 0 && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-hidden w-full mx-4">
+              <div className="p-6 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">CSV Field Mapping Wizard</h2>
+                    <p className="text-gray-600 mt-1">Map your CSV columns to application fields</p>
+                  </div>
+                  <Button 
+                    onClick={() => {
+                      setShowMappingWizard(false);
+                      setCsvHeaders([]);
+                      setCsvPreviewData([]);
+                    }}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    ✕
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex h-[70vh]">
+                {/* CSV Preview Panel */}
+                <div className="w-1/2 border-r border-gray-200 p-6 overflow-y-auto">
+                  <h3 className="font-semibold text-gray-900 mb-4">CSV Preview</h3>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="font-medium">Columns Found:</span> {csvHeaders.length}
+                      </div>
+                      <div>
+                        <span className="font-medium">Sample Rows:</span> {csvPreviewData.length}
+                      </div>
+                    </div>
+                    
+                    <div className="border border-gray-200 rounded-md overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            {csvHeaders.map((header, index) => (
+                              <th key={index} className="px-2 py-2 text-left font-medium text-gray-700 border-r border-gray-200 last:border-r-0">
+                                {header}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {csvPreviewData.map((row, rowIndex) => (
+                            <tr key={rowIndex} className="border-t border-gray-200">
+                              {row.map((cell, cellIndex) => (
+                                <td key={cellIndex} className="px-2 py-2 border-r border-gray-200 last:border-r-0 text-gray-600">
+                                  {cell.length > 20 ? `${cell.substring(0, 20)}...` : cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Field Mapping Panel */}
+                <div className="w-1/2 p-6 overflow-y-auto">
+                  <h3 className="font-semibold text-gray-900 mb-4">Field Mapping</h3>
+                  
+                  {/* Profile Selection */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Use Mapping Profile (Optional)
+                    </label>
+                    <Select value={selectedProfile} onValueChange={setSelectedProfile}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a profile or map manually" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Manual Mapping</SelectItem>
+                        {mappingProfiles.map((profile) => (
+                          <SelectItem key={profile.id} value={profile.id}>
+                            {profile.name} ({profile.source})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Smart Suggestions */}
+                  <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <h4 className="font-medium text-blue-900 mb-2">Smart Mapping Suggestions</h4>
+                    <Button 
+                      onClick={() => {
+                        const suggestions = detectFieldMappings(csvHeaders);
+                        setSaveStatus(`Found ${suggestions.length} automatic suggestions!`);
+                        setTimeout(() => setSaveStatus(''), 3000);
+                      }}
+                      className="btn-primary btn-sm"
+                    >
+                      <MdAutoAwesome className="mr-2" />
+                      Auto-Detect Fields
+                    </Button>
+                    <p className="text-sm text-blue-800 mt-2">
+                      We'll analyze your column names and suggest the best field mappings
+                    </p>
+                  </div>
+
+                  {/* Manual Field Mapping */}
+                  <div className="space-y-4">
+                    <h4 className="font-medium text-gray-900">Map CSV Columns to App Fields</h4>
+                    {csvHeaders.map((header, index) => (
+                      <div key={index} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg">
+                        <div className="flex-1">
+                          <div className="font-medium text-sm text-gray-900">{header}</div>
+                          <div className="text-xs text-gray-500">
+                            Sample: {csvPreviewData[0]?.[index] || 'No data'}
+                          </div>
+                        </div>
+                        <div className="w-8 text-center text-gray-400">→</div>
+                        <div className="flex-1">
+                          <Select>
+                            <SelectTrigger className="text-sm">
+                              <SelectValue placeholder="Choose field..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">Skip this column</SelectItem>
+                              <SelectItem value="customer">Customer Name</SelectItem>
+                              <SelectItem value="score">Health Score</SelectItem>
+                              <SelectItem value="status">Status</SelectItem>
+                              {metrics.map((metric) => (
+                                <SelectItem key={metric.id} value={`metric_${metric.id}`}>
+                                  {metric.name} (Metric)
+                                </SelectItem>
+                              ))}
+                              {customFields.map((field) => (
+                                <SelectItem key={field.id} value={`custom_${field.id}`}>
+                                  {field.name} (Custom)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="p-6 border-t border-gray-200 bg-gray-50">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    {saveStatus && (
+                      <div className="flex items-center gap-2 text-green-600">
+                        <MdCheckCircle />
+                        <span className="text-sm font-medium">{saveStatus}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <Button 
+                      onClick={() => {
+                        const profileName = prompt('Save this mapping as a profile:');
+                        if (profileName) {
+                          const description = prompt('Profile description:') || '';
+                          const source = prompt('Data source:') || 'Unknown';
+                          createMappingProfile(profileName, description, source);
+                        }
+                      }}
+                      className="btn-secondary"
+                    >
+                      <MdSave className="mr-2" />
+                      Save as Profile
+                    </Button>
+                    <Button 
+                      onClick={() => {
+                        // TODO: Process the mapped CSV data
+                        setSaveStatus('CSV data processing is ready!');
+                        setShowMappingWizard(false);
+                        setTimeout(() => setSaveStatus(''), 3000);
+                      }}
+                      className="btn-primary"
+                    >
+                      <MdCloudUpload className="mr-2" />
+                      Import Data
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {currentPage === "customers" && (
+          <div className="fade-in">
+            <div className="content-header">
+              <h1 className="text-2xl font-bold text-slate-800">Customer Management</h1>
+              <p className="text-slate-600 mt-1">Manage your customer data and interactions</p>
+            </div>
+            
+            <div className="content-body">
+              {/* Add your customer management components here */}
+            </div>
+          </div>
+        )}
+
+        {currentPage === "settings" && (
+          <div className="fade-in">
+            <div className="content-header">
+              <h1 className="text-2xl font-bold text-slate-800">Settings</h1>
+              <p className="text-slate-600 mt-1">Configure application settings and preferences</p>
+            </div>
+            
+            <div className="content-body">
+              {/* Add your settings components here */}
             </div>
           </div>
         )}
